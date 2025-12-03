@@ -238,6 +238,7 @@ extern crate alloc;
 use crate::{
     error::SmbiosError,
     service::{SMBIOS_HANDLE_PI_RESERVED, SmbiosTableHeader},
+    smbios_types::*,
 };
 use alloc::{string::String, vec::Vec};
 
@@ -453,6 +454,335 @@ pub struct Type3SystemEnclosure {
     /// Contained element record length
     pub contained_element_record_length: u8,
 
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 4: Processor Information
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 4)]
+pub struct Type4ProcessorInformation {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Socket Designation string index
+    pub socket: u8,
+    /// Processor Type
+    pub processor_type: ProcessorTypeData,
+    /// Processor Family
+    pub processor_family: ProcessorFamilyData,
+    /// Processor Manufacturer string index
+    pub processor_manufacturer: u8,
+    /// Processor ID
+    pub processor_id: u64,
+    /// Processor Version string index
+    pub processor_version: u8,
+    /// Voltage
+    pub voltage: ProcessorVoltage, 
+    /// External Clock
+    pub external_clock: u16,
+    /// Max Speed
+    pub max_speed: u16,
+    /// Current Speed
+    pub current_speed: u16,
+    /// Status
+    pub status: ProcessorInformationStatus,
+    /// Processor Upgrade
+    pub processor_upgrade: ProcessorUpgrade,
+    /// L1 Cache Handle
+    pub l1_cache_handle: u16,
+    /// L2 Cache Handle
+    pub l2_cache_handle: u16,
+    /// L3 Cache Handle
+    pub l3_cache_handle: u16,
+    /// Serial Number string index
+    pub serial_number: u8,
+    /// Asset Tag string index
+    pub asset_tag: u8,
+    /// Part Number string index
+    pub part_number: u8,
+    /// Core Count
+    pub core_count: u8,
+    /// Core Enabled
+    pub core_enabled: u8,
+    /// Thread Count
+    pub thread_count: u8,
+    /// Processor Characteristics
+    pub processor_characteristics: ProcessorCharacteristics,
+    /// Processor Family 2
+    pub processor_family2: ProcessorFamilyData,
+    /// Core Count 2
+    pub core_count2: u16,
+    /// Core Enabled 2
+    pub core_enabled2: u16,
+    /// Thread Count 2
+    pub thread_count2: u16,
+    /// Thread Enabled
+    pub thread_enabled: u16,
+    /// Socket Type string index
+    pub socket_type: u8,
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 7: Cache Information
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 7)]
+pub struct Type7CacheInformation {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Socket Designation string index
+    pub socket_designation: u8,
+    /// Cache Configuration
+    pub cache_configuration: CacheConfiguration,
+    /// Maximum Cache Size
+    pub maximum_cache_size: CacheSize,
+    /// Installed Size
+    pub installed_size: CacheSize,
+    /// Supported SRAM Type
+    pub supported_sram_type: CacheSramTypeData,
+    /// Current SRAM Type
+    pub current_sram_type: CacheSramTypeData,
+    /// Cache Speed
+    pub cache_speed: u8,
+    /// Error Correction Type
+    pub error_correction_type: ErrorCorrectionType,
+    /// System Cache Type
+    pub system_cache_type: SystemCacheType,
+    /// Associativity
+    pub associativity: AssociativityField,
+    /// Maximum Cache Size 2
+    pub maximum_cache_size2: CacheSize2,
+    /// Installed Cache Size 2
+    pub installed_size2: CacheSize2,
+
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 9: System Slots
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 9)]
+pub struct Type9SystemSlots {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Slot Designation string index
+    pub slot_designation: u8,
+    /// Slot Type
+    pub slot_type: SlotType,
+    /// Slot Data Bus Width
+    pub slot_data_bus_width: SlotWidth,
+    /// Current Usage
+    pub current_usage: CurrentUsage,
+    /// Slot Length
+    pub slot_length: SlotLength,
+    /// Slot ID
+    pub slot_id: u16,
+    /// Slot Characteristics 1
+    pub slot_characteristics1: SlotCharacteristics1,
+    /// Slot Characteristics 2
+    pub slot_characteristics2: SlotCharacteristics2,
+    /// Segment Group Number (Base)
+    pub segment_group_num: u16,
+    /// Bus Number (Base)
+    pub bus_num: u8,
+    /// Device/Function Number (Base)
+    pub dev_func_num: DeviceFunctionNumber,
+    /// Data Bus Width (Base)
+    pub data_bus_width: u8,
+    /// Peer (S/B/D/F/Width), grouping count (n)
+    pub peer_grouping_count: u8,
+    /// Peer (S/B/D/F/Width) groups
+    pub peer_groups: [MiscSlotPeerGroup; 32],
+    /// Slot Information
+    pub slot_information: u8,
+    /// Slot Physical Width
+    pub slot_physical_width: u8,
+    /// Slot Pitch
+    pub slot_pitch: u16,
+    /// Slot Height
+    pub slot_height: u8,
+
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 16: Physical Memory Array
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 16)]
+pub struct Type16PhysicalMemoryArray {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Location
+    pub location: MemoryArrayLocation,
+    /// Use
+    pub use_: MemoryArrayUse,
+    /// Memory Error Correction
+    pub memory_error_correction: ErrorCorrectionType,
+    /// Maximum Capacity
+    pub maximum_capacity: u64,
+    /// Memory Error Information Handle
+    pub memory_error_information_handle: u16,
+    /// Number of Memory Devices
+    pub number_of_memory_devices: u16,
+    /// Extended Maximum Capacity
+    pub extended_maximum_capacity: u64,
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 17: Memory Information
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 17)]
+pub struct Type17MemoryInformation {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Physical Memory Array Handle
+    pub physical_memory_array_handle: u16,
+    /// Memory Error Information Handle
+    pub memory_error_information_handle: u16,
+    /// Total Width
+    pub total_width: u16,
+    /// Data Width
+    pub data_width: u16,
+    /// Size
+    pub size: u16,
+    /// Form Factor
+    pub form_factor: MemoryFormFactor,
+    /// Device Set
+    pub device_set: u8,
+    /// Device Locator string index
+    pub device_locator: u8,
+    /// Bank Locator string index
+    pub bank_locator: u8,
+    /// Memory Type
+    pub memory_type: MemoryDeviceType,
+    /// Type Detail
+    pub type_detail: MemoryDeviceTypeDetails,
+    /// Speed
+    pub speed: u16,
+    /// Manufacturer string index
+    pub manufacturer: u8,
+    /// Serial Number string index
+    pub serial_number: u8,
+    /// Asset Tag string index
+    pub asset_tag: u8,
+    /// Part Number string index
+    pub part_number: u8,
+    /// Attributes
+    pub attributes: MemoryDeviceAttributes,
+    /// Extended Size
+    pub extended_size: u32,
+    /// Configured Memory Speed
+    pub configured_memory_clock_speed: u16,
+    /// Minimum Voltage
+    pub minimum_voltage: u16,
+    /// Maximum Voltage
+    pub maximum_voltage: u16,
+    /// Configured Voltage
+    pub configured_voltage: u16,
+    /// Memory Technology
+    pub memory_technology: MemoryDeviceTechnology,
+    /// Memory Operating Mode Capability
+    pub memory_operating_mode_capability: MemoryCapability,
+    /// Firmware Version string index
+    pub firmware_version: u8,
+    /// Module Manufacturer ID
+    pub module_manufacturer_id: u16,
+    /// Module Product ID
+    pub module_product_id: u16,
+    /// Memory Subsystem Contorller Manufacturer ID
+    pub memory_subsystem_controller_manufacturer_id: u16,
+    /// Memory Subsystem Controller Product ID
+    pub memory_subsystem_controller_product_id: u16,
+    /// Non-volatile Size
+    pub non_volatile_size: u64,
+    /// Volatile Size
+    pub volatile_size: u64,
+    /// Cache Size
+    pub cache_size: u64,
+    /// Logical Size
+    pub logical_size: u64,
+    /// Extended Speed
+    pub extended_speed: u32,
+    /// Extended Configured Memory Speed
+    pub extended_configured_memory_speed: u32,
+    /// PMIC0 Manufacturer ID
+    pub pmic0_manufacturer_id: u16,
+    /// PMIC0 Revision Number
+    pub pmic0_revision_number: u16,
+    /// RCD Manufacturer ID
+    pub rcd_manufacturer_id: u16,
+    /// RCD Revision Number
+    pub rcd_revision_number: u16,
+
+    /// String pool (NOT part of binary SMBIOS format - see struct documentation)
+    #[string_pool]
+    pub string_pool: Vec<String>,
+}
+
+/// Type 32: System Boot Information
+///
+/// # Important: Not C-Compatible
+///
+/// This struct contains a `string_pool: Vec<String>` field which is Rust metadata and
+/// **NOT** part of the SMBIOS table binary format. Never cast this struct to bytes directly.
+/// Always use `to_bytes()` to convert to proper SMBIOS format.
+///
+/// See [`Type0PlatformFirmwareInformation`] for detailed documentation on proper usage.
+#[derive(patina_macro::SmbiosRecord)]
+#[smbios(record_type = 32)]
+pub struct Type32SystemBootInformation {
+    /// SMBIOS table header
+    pub header: SmbiosTableHeader,
+    /// Reserved
+    pub reserved: [u8; 6],
+    /// Boot Status
+    pub boot_status: u32,
     /// String pool (NOT part of binary SMBIOS format - see struct documentation)
     #[string_pool]
     pub string_pool: Vec<String>,
