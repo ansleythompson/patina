@@ -25,12 +25,13 @@
 //!
 //! ```rust
 //! extern crate patina;
-//! extern crate patina_internal_cpu;
-//!
-//! use patina_internal_cpu::interrupts::{Interrupts, InterruptManager};
+//! # extern crate patina_internal_cpu;
+//! # use patina_internal_cpu::interrupts::{Interrupts, InterruptManager};
+//! # use patina::component::service::perf_timer::ArchTimerFunctionality;
 //!
 //! static DEBUGGER: patina_debugger::PatinaDebugger<patina::serial::uart::UartNull> =
-//!     patina_debugger::PatinaDebugger::new(patina::serial::uart::UartNull{});
+//!     patina_debugger::PatinaDebugger::new(patina::serial::uart::UartNull{})
+//!         .with_timeout(30); // Set initial break timeout to 30 seconds.
 //!
 //! fn entry() {
 //!
@@ -52,11 +53,9 @@
 //! }
 //!
 //! fn start() {
-//!     let mut interrupt_manager = Interrupts::default();
-//!
 //!     // Initialize the debugger. This will cause a debug break because of the
 //!     // initial break configuration set above.
-//!     patina_debugger::initialize(&mut interrupt_manager);
+//!     patina_debugger::initialize(&mut Interrupts::default(), Some(&ExampleTimer));
 //!
 //!     // Notify the debugger of a module load.
 //!     patina_debugger::notify_module_load("module.efi", 0x420000, 0x10000);
@@ -65,10 +64,23 @@
 //!     patina_debugger::poll_debugger();
 //!
 //!     // Break into the debugger if the debugger is enabled.
-//!     if patina_debugger::enabled() {
-//!         patina_debugger::breakpoint();
-//!     }
+//!     patina_debugger::breakpoint();
+//!
+//!     // Cause a debug break unconditionally. This will crash the system
+//!     // if the debugger is not enabled. This should be used with extreme caution.
+//!     patina_debugger::breakpoint_unchecked();
 //! }
+//!
+//! # struct ExampleTimer;
+//! # impl ArchTimerFunctionality for ExampleTimer {
+//! #     fn cpu_count(&self) -> u64 {
+//! #         0
+//! #     }
+//! #
+//! #     fn perf_frequency(&self) -> u64 {
+//! #         1
+//! #     }
+//! # }
 //!
 //! ```
 //!
@@ -93,8 +105,11 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(coverage_attribute)]
 
+#[coverage(off)] // The debugger needs integration test infrastructure. Disabling coverage until this is completed.
 mod arch;
+#[coverage(off)] // The debugger needs integration test infrastructure. Disabling coverage until this is completed.
 mod dbg_target;
+#[coverage(off)] // The debugger needs integration test infrastructure. Disabling coverage until this is completed.
 mod debugger;
 mod memory;
 mod system;
@@ -104,8 +119,9 @@ extern crate alloc;
 
 pub use debugger::PatinaDebugger;
 
+#[cfg(not(test))]
 use arch::{DebuggerArch, SystemArch};
-use patina::serial::SerialIO;
+use patina::{component::service::perf_timer::ArchTimerFunctionality, serial::SerialIO};
 use patina_internal_cpu::interrupts::{ExceptionContext, InterruptManager};
 
 /// Global instance of the debugger.
@@ -134,8 +150,12 @@ pub type MonitorCommandFn = fn(&mut core::str::SplitWhitespace<'_>, &mut dyn cor
 /// platform specific debugger implementation. For safety, these routines should
 /// only be invoked on the global instance of the debugger.
 trait Debugger: Sync {
-    /// Initializes the debugger.
-    fn initialize(&'static self, interrupt_manager: &mut dyn InterruptManager);
+    /// Initializes the debugger. Intended for core use only.
+    fn initialize(
+        &'static self,
+        interrupt_manager: &mut dyn InterruptManager,
+        timer: Option<&'static dyn ArchTimerFunctionality>,
+    );
 
     /// Checks if the debugger is enabled.
     fn enabled(&'static self) -> bool;
@@ -192,18 +212,35 @@ pub fn set_debugger<T: SerialIO>(debugger: &'static PatinaDebugger<T>) {
 /// Initializes the debugger. This will install the debugger into the exception
 /// handlers using the provided interrupt manager. This routine may invoke a debug
 /// break depending on configuration.
-pub fn initialize(interrupt_manager: &mut dyn InterruptManager) {
+#[coverage(off)] // Initializing the debugger requires integration testing infrastructure. Disabling coverage until this is completed.
+pub fn initialize(interrupt_manager: &mut dyn InterruptManager, timer: Option<&'static dyn ArchTimerFunctionality>) {
     if let Some(debugger) = DEBUGGER.get() {
-        debugger.initialize(interrupt_manager);
+        debugger.initialize(interrupt_manager, timer);
     }
 }
 
-/// Invokes a debug break instruction. Callers should ensure that the debugger
-/// is enabled before invoking this routine using the [enabled] routine. If this
-/// routine is invoked when the debugger is not enabled, it will cause an unhandled
-/// exception.
+/// Invokes a debug break instruction if the debugger is enabled. This will cause
+/// the debugger to break in, if enabled. If the debugger is not enabled, this
+/// routine will have no effect.
 pub fn breakpoint() {
+    if enabled() {
+        breakpoint_unchecked();
+    }
+}
+
+/// Invokes a debug break instruction unconditionally. If this routine is invoked when
+/// the debugger is not enabled, it will cause an unhandled exception.
+///
+/// ## Important
+///
+/// This should only be used in debug scenarios or when it is impossible to continue
+/// execution in the current state and an CPU exception must be raised.
+#[inline(always)]
+pub fn breakpoint_unchecked() {
+    #[cfg(not(test))]
     SystemArch::breakpoint();
+    #[cfg(test)]
+    panic!("breakpoint_unchecked");
 }
 
 /// Notifies the debugger of a module load at the provided address and length.
@@ -287,5 +324,43 @@ impl core::fmt::Display for ExceptionType {
             }
             ExceptionType::Other(exception_type) => write!(f, "Unknown. Architecture code: {exception_type:#X}"),
         }
+    }
+}
+
+#[coverage(off)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    static DUMMY_DEBUGGER: PatinaDebugger<patina::serial::uart::UartNull> =
+        PatinaDebugger::new(patina::serial::uart::UartNull {});
+
+    fn reset() {
+        // Reset the global debugger for testing.
+        DUMMY_DEBUGGER.enable(false);
+        if !DEBUGGER.is_completed() {
+            set_debugger(&DUMMY_DEBUGGER);
+        }
+    }
+
+    #[test]
+    #[serial(global_debugger)]
+    fn test_debug_break_not_enabled() {
+        reset();
+        // Ensure that invoking a debug break when the debugger is not enabled does not cause issues.
+        breakpoint();
+    }
+
+    #[test]
+    #[should_panic(expected = "breakpoint_unchecked")]
+    #[serial(global_debugger)]
+    fn test_debug_break_enabled() {
+        reset();
+        // Enable the debugger.
+        DUMMY_DEBUGGER.enable(true);
+
+        // Ensure that invoking a debug break when the debugger is enabled causes a panic.
+        breakpoint();
     }
 }

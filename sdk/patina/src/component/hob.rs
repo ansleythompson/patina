@@ -59,7 +59,7 @@
 //! SPDX-License-Identifier: Apache-2.0
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 
 use crate::OwnedGuid;
 use core::{any::Any, ops::Deref};
@@ -214,6 +214,9 @@ impl<T: FromHob + 'static> Deref for Hob<'_, T> {
     }
 }
 
+// SAFETY: The Hob<T> parameter validates HOB availability and provides immutable access.
+// The FromHob trait ensures T can be safely constructed from HOB data.
+// UnsafeStorageCell provides controlled access to storage under Param protocol.
 unsafe impl<T: FromHob + 'static> Param for Hob<'_, T> {
     type State = usize;
     type Item<'storage, 'state> = Hob<'storage, T>;
@@ -222,6 +225,8 @@ unsafe impl<T: FromHob + 'static> Param for Hob<'_, T> {
         lookup_id: &'state Self::State,
         storage: UnsafeStorageCell<'storage>,
     ) -> Self::Item<'storage, 'state> {
+        // SAFETY: lookup_id was validated to be a valid HOB index by validate().
+        // UnsafeStorageCell provides exclusive access to storage under Param protocol.
         Hob::from(unsafe { storage.storage().get_raw_hob(*lookup_id) })
     }
 
@@ -230,9 +235,9 @@ unsafe impl<T: FromHob + 'static> Param for Hob<'_, T> {
         !unsafe { storage.storage() }.get_raw_hob(*state).is_empty()
     }
 
-    fn init_state(storage: &mut Storage, _meta: &mut MetaData) -> Self::State {
+    fn init_state(storage: &mut Storage, _meta: &mut MetaData) -> Result<Self::State, Cow<'static, str>> {
         storage.add_hob_parser::<T>();
-        storage.register_hob::<T>()
+        Ok(storage.register_hob::<T>())
     }
 }
 
@@ -290,7 +295,7 @@ mod tests {
     use crate as patina;
     use crate::{
         Guid, OwnedGuid,
-        component::IntoComponent,
+        component::{IntoComponent, component},
         error::{EfiError, Result},
     };
 
@@ -355,18 +360,19 @@ mod tests {
 
     #[test]
     fn test_component_flow() {
-        #[derive(IntoComponent)]
-        #[entry_point(path = my_component)]
         struct MyComponent;
 
-        fn my_component(_: MyComponent, hob: Hob<MyStruct>) -> Result<()> {
-            if hob.unused == 0 {
-                return Err(EfiError::NotReady);
+        #[component]
+        impl MyComponent {
+            fn entry_point(self, hob: Hob<MyStruct>) -> Result<()> {
+                if hob.unused == 0 {
+                    return Err(EfiError::NotReady);
+                }
+                if hob.unused != 5 {
+                    return Err(EfiError::InvalidParameter);
+                }
+                Ok(())
             }
-            if hob.unused != 5 {
-                return Err(EfiError::InvalidParameter);
-            }
-            Ok(())
         }
 
         let mut storage = Storage::new();
@@ -378,13 +384,14 @@ mod tests {
         MyStruct::register(&[0], &mut storage);
         assert!(Hob::<MyStruct>::validate(&0, UnsafeStorageCell::from(&storage)));
 
+        // SAFETY: Test code - the Hob parameter is available in storage.
         let x = unsafe { Hob::<MyStruct>::get_param(&0, UnsafeStorageCell::from(&storage)) };
 
-        assert!(my_component(MyComponent, x).is_err_and(|e| e == EfiError::NotReady));
+        assert!(MyComponent::entry_point(MyComponent, x).is_err_and(|e| e == EfiError::NotReady));
 
-        assert!(my_component(MyComponent, Hob::mock(vec![MyStruct { unused: 5 }])).is_ok());
+        assert!(MyComponent::entry_point(MyComponent, Hob::mock(vec![MyStruct { unused: 5 }])).is_ok());
         assert!(
-            my_component(MyComponent, Hob::mock(vec![MyStruct { unused: 10 }]))
+            MyComponent::entry_point(MyComponent, Hob::mock(vec![MyStruct { unused: 10 }]))
                 .is_err_and(|e| e == EfiError::InvalidParameter)
         );
     }

@@ -39,14 +39,16 @@ interface.
 
 ```rust,no_run
 # extern crate patina_dxe_core;
-# let physical_hob_list = core::ptr::null();
-use patina_dxe_core::Core;
-Core::default()
-    .init_memory(physical_hob_list)
-    .with_config(52_u32)
-    .with_config(62_usize)
-    .start()
-    .unwrap();
+use patina_dxe_core::*;
+
+struct Platform;
+
+impl ComponentInfo for Platform {
+  fn configs(mut add: Add<Config>) {
+    add.config(52_u32);
+    add.config(62_usize);
+  }
+}
 ```
 
 `Config<T>` and `ConfigMut<T>` are special, as they both reference the same underlying data. As you might expect
@@ -84,11 +86,32 @@ In terms of registration, `Component::initialize` is used to register any data a
 component's metadata. The scheduler can use the access set of each component for scheduling parallel execution of
 components, though this is not yet implemented.
 
-In terms of validation, `Component::initialize` is used to validate no params in the same component conflict with
-each other. This is done via the access set mentioned above. As an example, a component that uses `ConfigMut<T>` and
-`Config<T>` is invalid. You cannot have mutable and immutable access to the same data.
+In terms of validation, Patina-defined parameter types are validated at compile time. Custom parameter types are
+validated in `Component::initialize`. This is done via the access set mentioned above. As an example, a component that
+uses `ConfigMut<T>` and `Config<T>` is invalid. You cannot have mutable and immutable access to the same data.
 
 Once the component and its params are fully registered, the component is stored for dispatch.
+
+```rust,no_run
+# extern crate patina_dxe_core;
+# extern crate patina;
+# use patina::component::component;
+# #[derive(Default)]
+# pub struct ExampleComponent;
+# #[component]
+# impl ExampleComponent {
+#   fn entry_point(self) -> patina::error::Result<()> { Ok(()) }
+# }
+use patina_dxe_core::*;
+
+struct Platform;
+
+impl ComponentInfo for Platform {
+  fn components(mut add: Add<Component>) {
+    add.component(ExampleComponent::default())
+  }
+}
+```
 
 ### Executing Components
 

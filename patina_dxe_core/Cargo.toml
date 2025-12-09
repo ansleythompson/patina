@@ -12,12 +12,8 @@ description = "A pure rust implementation of the UEFI DXE Core."
 [package.metadata.docs.rs]
 features = ["doc"]
 
-[[example]]
-name = "dxe_core_std"
-path = "examples/std.rs"
-required-features = ["std"]
-
 [dependencies]
+bitfield-struct = { workspace = true }
 cfg-if = { workspace = true }
 compile-time = { workspace = true }
 crc32fast = { workspace = true }
@@ -52,9 +48,12 @@ patina_internal_collections = { path = "../core/patina_internal_collections" }
 env_logger = { workspace = true }
 mockall = { workspace = true }
 serial_test = { workspace = true }
+zerocopy = { workspace = true }
+zerocopy-derive = { workspace = true }
 
 [target.'cfg(all(target_arch="aarch64"))'.dependencies]
 arm-gic = { workspace = true }
+aarch64-cpu = { version = "11.0.0", optional = false }
 
 [features]
 default = []
@@ -62,3 +61,4 @@ std = ["patina/std"]
 doc = ["patina_internal_cpu/doc"]
 compatibility_mode_allowed = []
 v1_resource_descriptor_support = []
+debugger_reload = []

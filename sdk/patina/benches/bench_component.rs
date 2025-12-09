@@ -29,13 +29,13 @@
 use criterion::{Bencher, Criterion, criterion_group, criterion_main};
 use patina::{
     boot_services::StandardBootServices,
-    component::{Component, IntoComponent, Storage, params::*},
+    component::{Component, IntoComponent, Storage, component, params::*},
     error::Result,
 };
 
-#[derive(IntoComponent)]
 struct TestComponent;
 
+#[component]
 impl TestComponent {
     fn entry_point(self, _bs: StandardBootServices, _config: Config<i32>) -> Result<()> {
         Ok(())
@@ -92,6 +92,7 @@ fn run_component_abstracted(b: &mut Bencher<'_>, count: &usize) {
 
     let init = |count: usize| -> Scheduler {
         let mut core = Scheduler::new();
+        // SAFETY: Benchmark code - using zeroed BootServices for performance testing.
         core.storage.set_boot_services(StandardBootServices::new(unsafe { &*mock_bs.as_ptr() }));
         for _ in 0..count {
             core = core.with_component(TestComponent);
@@ -113,6 +114,7 @@ fn add_and_run_component_abstracted(b: &mut Bencher<'_>, count: &usize) {
 
     let init = || -> Scheduler {
         let mut core = Scheduler::new();
+        // SAFETY: Benchmark code - using zeroed BootServices for performance testing.
         core.storage.set_boot_services(StandardBootServices::new(unsafe { &*mock_bs.as_ptr() }));
         core
     };

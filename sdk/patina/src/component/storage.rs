@@ -14,7 +14,7 @@ use crate::{
 };
 
 use crate::{OwnedGuid, boot_services::StandardBootServices};
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{
     any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut, UnsafeCell},
@@ -432,7 +432,15 @@ impl Storage {
 #[derive(Copy, Clone)]
 pub struct UnsafeStorageCell<'s>(*mut Storage, PhantomData<(&'s Storage, &'s UnsafeCell<Storage>)>);
 
+// Safety: UnsafeStorageCell wraps a raw pointer but does not own the data. The lifetime specifier ensures the pointer
+// remains valid. Send is safe because the wrapper doesn't allow unsynchronized access. All access goes through
+// unsafe methods that require the caller to ensure proper synchronization. The PhantomData ties the lifetime
+// to the storage reference, preventing the cell from outliving the storage.
 unsafe impl Send for UnsafeStorageCell<'_> {}
+// Safety: Sync is safe because UnsafeStorageCell provides controlled access to storage through unsafe methods
+// that place the synchronization burden on the caller. The wrapper itself contains no mutable state - just a
+// raw pointer and phantom data. Multiple threads can hold UnsafeStorageCell instances safely as long as they
+// follow the access rules documented on storage() and storage_mut().
 unsafe impl Sync for UnsafeStorageCell<'_> {}
 
 impl<'s> From<&'s mut Storage> for UnsafeStorageCell<'s> {
@@ -503,14 +511,23 @@ impl<'s> UnsafeStorageCell<'s> {
     }
 }
 
+// Safety: &mut Storage parameter provides exclusive access to the entire storage. The Param implementation
+// ensures exclusive access by tracking config reads/writes in MetaData. init_state() asserts no conflicting
+// config access exists and marks all configs as exclusively written. get_param() uses storage_mut() which
+// requires the UnsafeStorageCell was created from mutable storage access.
 unsafe impl Param for &mut Storage {
     type State = ();
     type Item<'storage, 'state> = &'storage mut Storage;
 
+    // Safety: UnsafeStorageCell was created from &mut Storage (validated by init_state). storage_mut()
+    // returns the underlying mutable reference. The Param trait ensures this is the only active borrow
+    // of storage data.
     unsafe fn get_param<'storage, 'state>(
         _state: &'state Self::State,
         storage: UnsafeStorageCell<'storage>,
     ) -> Self::Item<'storage, 'state> {
+        // Safety: UnsafeStorageCell was created with exclusive access. init_state ensured no conflicting
+        // config access. storage_mut() safety requirements are met by the Param trait.
         unsafe { storage.storage_mut() }
     }
 
@@ -519,33 +536,47 @@ unsafe impl Param for &mut Storage {
         true
     }
 
-    fn init_state(_storage: &mut Storage, meta: &mut MetaData) -> Self::State {
+    fn init_state(_storage: &mut Storage, meta: &mut MetaData) -> Result<Self::State, Cow<'static, str>> {
         // Storage provides global access to configuration. That means by manipulating the storage,
         // we can invalidate any config access, so we make sure no other config access has been
         // registered, and set ourselves as exclusive.
-        debug_assert!(
-            !meta.access().has_any_config_write(),
-            "&mut Storage in component {} conflicts with a previous ConfigMut<T> access.",
-            meta.name()
-        );
+        if meta.access().has_writes_all_configs() {
+            return Err(Cow::from("&mut Storage conflicts with a previous &mut Storage access."));
+        }
 
-        debug_assert!(
-            !meta.access().has_any_config_read(),
-            "&mut Storage in component {} conflicts with a previous Config<T> access.",
-            meta.name()
-        );
+        if meta.access().has_reads_all_configs() {
+            return Err(Cow::from("&mut Storage conflicts with a previous &Storage access."));
+        }
+
+        if meta.access().has_any_config_write() {
+            return Err(Cow::from("&mut Storage conflicts with a previous ConfigMut<T> access."));
+        }
+
+        if meta.access().has_any_config_read() {
+            return Err(Cow::from("&mut Storage conflicts with a previous Config<T> access."));
+        }
+
         meta.access_mut().writes_all_configs();
+        Ok(())
     }
 }
 
+// Safety: &Storage parameter provides shared immutable access to the entire storage. The Param implementation
+// ensures no conflicting mutable access exists by checking that no ConfigMut<T> parameters have been registered
+// (which would require mutable config access). get_param() uses storage() which only requires immutable access.
 unsafe impl Param for &Storage {
     type State = ();
     type Item<'storage, 'state> = &'storage Storage;
 
+    // Safety: UnsafeStorageCell provides access to storage. storage() returns an immutable reference.
+    // init_state() ensured no conflicting mutable config access exists. The Param protocol ensures this
+    // shared access is safe.
     unsafe fn get_param<'storage, 'state>(
         _state: &'state Self::State,
         storage: UnsafeStorageCell<'storage>,
     ) -> Self::Item<'storage, 'state> {
+        // Safety: storage() requires no exclusive borrows of storage data. init_state verified no
+        // ConfigMut<T> access exists that would create conflicting mutable access.
         unsafe { storage.storage() }
     }
 
@@ -554,14 +585,17 @@ unsafe impl Param for &Storage {
         true
     }
 
-    fn init_state(_storage: &mut Storage, meta: &mut MetaData) -> Self::State {
-        debug_assert!(
-            !meta.access().has_any_config_write(),
-            "&mut Storage in component {} conflicts with a previous ConfigMut<T> access.",
-            meta.name()
-        );
+    fn init_state(_storage: &mut Storage, meta: &mut MetaData) -> Result<Self::State, Cow<'static, str>> {
+        if meta.access().has_writes_all_configs() {
+            return Err(Cow::from("&Storage conflicts with a previous &mut Storage access."));
+        }
+
+        if meta.access().has_any_config_write() {
+            return Err(Cow::from("&Storage conflicts with a previous ConfigMut<T> access."));
+        }
 
         meta.access_mut().reads_all_configs();
+        Ok(())
     }
 }
 
@@ -684,6 +718,7 @@ mod tests {
         assert!(storage.get_service::<dyn TestService>().is_none());
 
         {
+            // SAFETY: Test code - Commands parameter is always available without validation.
             let mut commands = unsafe { <Commands as Param>::get_param(&(), UnsafeStorageCell::from(&mut storage)) };
             commands.add_service(TestServiceImpl { id: 42 });
         }
@@ -694,5 +729,71 @@ mod tests {
         assert!(storage.get_service::<dyn TestService>().is_some());
         let service = storage.get_service::<dyn TestService>().unwrap();
         assert_eq!(service.test(), 42);
+    }
+
+    #[test]
+    fn test_mutable_storage_param_conflict_scenarios() {
+        // `&mut Storage` conflicts with any config access (mutable or immutable) and any other storage access.
+        // This test simulates those scenarios by manipulating the MetaData access directly.
+
+        // Scenario 1: `&mut Storage` + `&mut Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<&mut Storage as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&mut Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&mut Storage conflicts with a previous &mut Storage access."
+        );
+
+        // Scenario 2: `&Storage` + `&mut Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<&Storage as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&mut Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&mut Storage conflicts with a previous &Storage access."
+        );
+
+        // Scenario 3: `ConfigMut<T>` + `&mut Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<crate::component::params::ConfigMut<u32> as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&mut Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&mut Storage conflicts with a previous ConfigMut<T> access."
+        );
+
+        // Scenario 4: `Config<T>` + `&mut Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<crate::component::params::Config<u32> as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&mut Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&mut Storage conflicts with a previous Config<T> access."
+        );
+    }
+
+    #[test]
+    fn test_immutable_storage_param_conflict_scenarios() {
+        // `&Storage` conflicts with any mutable config access and any `&mut Storage` access.
+        // This test simulates those scenarios by manipulating the MetaData access directly.
+
+        // Scenario 1: `&mut Storage` + `&Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<&mut Storage as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&Storage conflicts with a previous &mut Storage access."
+        );
+
+        // Scenario 2: `ConfigMut<T>` + `&Storage` conflict
+        let mut storage = Storage::new();
+        let mut metadata = MetaData::new::<bool>();
+        assert!(<crate::component::params::ConfigMut<u32> as Param>::init_state(&mut storage, &mut metadata).is_ok());
+        assert_eq!(
+            <&Storage as Param>::init_state(&mut storage, &mut metadata).unwrap_err(),
+            "&Storage conflicts with a previous ConfigMut<T> access."
+        );
     }
 }

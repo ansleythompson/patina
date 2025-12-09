@@ -211,11 +211,12 @@ mod tests {
 
     fn with_locked_state<F: Fn() + std::panic::RefUnwindSafe>(f: F) {
         test_support::with_global_lock(|| {
+            // SAFETY: Test code only - initializing test infrastructure with the test lock held
+            // prevents concurrent access during initialization.
             unsafe {
                 crate::test_support::init_test_gcd(None);
                 crate::test_support::init_test_protocol_db();
             }
-            crate::test_support::reset_dispatcher_context();
             f();
         })
         .unwrap();

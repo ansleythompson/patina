@@ -9,10 +9,8 @@
 //! function of `Self::entry_point` exists. This can be overridden with the `#[entry_point(path = path::to::function)]`
 //! attribute.
 //!
-//! It is important to note that the function's first parameter must be `self` or `mut self`, **NOT** `&self` or
-//! `&mut self`. This design choice was made as components are only expected to be executed once, and by consuming
-//! `self`, you are able to pass ownership of the entire struct (or items within the struct) to other "things" (for
-//! lack of a better term) without the need for cloning or borrowing.
+//! It is important to note that the function's first parameter must be `self`, `mut self`, `&self` or
+//! `&mut self`.
 //!
 //! Review [Param] implementations for all types that can be used as parameters to these functions.
 //!
@@ -80,10 +78,12 @@ where
         let param_state = self.param_state.as_mut().expect("Param state created on initialize.");
 
         if let Err(bad_param) = Func::Param::try_validate(param_state, storage) {
-            self.metadata.set_failed_param(bad_param);
+            self.metadata.set_error_message(bad_param);
             return Ok(false);
         }
 
+        // SAFETY: Func::Param::try_validate just succeeded, so param_state is valid
+        // and storage contains all necessary data for this parameter type.
         let param_value = unsafe { Func::Param::get_param(param_state, storage) };
 
         debug_assert!(
@@ -100,8 +100,17 @@ where
     }
 
     /// One-time initialization of the Component. Should set [Access](super::metadata::Access) requirements.
-    fn initialize(&mut self, _storage: &mut Storage) {
-        self.param_state = Some(Func::Param::init_state(_storage, &mut self.metadata));
+    fn initialize(&mut self, _storage: &mut Storage) -> bool {
+        match Func::Param::init_state(_storage, &mut self.metadata) {
+            Ok(param_state) => {
+                self.param_state = Some(param_state);
+                true
+            }
+            Err(init_error) => {
+                self.metadata.set_error_message(init_error);
+                false
+            }
+        }
     }
 }
 
@@ -110,53 +119,55 @@ where
 mod tests {
     use crate as patina;
     use crate::component::{
-        IntoComponent,
+        IntoComponent, component,
         params::{Config, ConfigMut},
     };
 
-    #[derive(IntoComponent)]
-    #[entry_point(path = TestStructSuccess::entry_point)]
+    use alloc::borrow::Cow;
+
     #[allow(dead_code)]
     pub struct TestStructSuccess {
         pub x: i32,
     }
 
+    #[component]
     impl TestStructSuccess {
         fn entry_point(self, _cfg: crate::component::params::Config<i32>) -> crate::error::Result<()> {
             Ok(())
         }
     }
 
-    #[derive(IntoComponent)]
-    #[entry_point(path = enum_entry_point)]
     #[allow(dead_code)]
     pub enum TestEnumSuccess {
         A,
         B,
     }
 
-    fn enum_entry_point(_s: TestEnumSuccess, _cfg: Config<i32>) -> crate::error::Result<()> {
-        Ok(())
+    #[component]
+    impl TestEnumSuccess {
+        fn entry_point(self, _cfg: Config<i32>) -> crate::error::Result<()> {
+            Ok(())
+        }
     }
 
-    #[derive(crate::component::IntoComponent)]
     #[allow(dead_code)]
     pub struct TestStructNotDispatched {
         pub x: i32,
     }
 
+    #[component]
     impl TestStructNotDispatched {
         fn entry_point(self, _cfg: ConfigMut<u32>) -> crate::error::Result<()> {
             Ok(())
         }
     }
 
-    #[derive(crate::component::IntoComponent)]
     #[allow(dead_code)]
     pub struct TestStructFail {
         pub x: i32,
     }
 
+    #[component]
     impl TestStructFail {
         fn entry_point(self) -> crate::error::Result<()> {
             Err(crate::error::EfiError::NotReady)
@@ -191,7 +202,10 @@ mod tests {
         test_struct.initialize(&mut storage);
         storage.lock_configs(); // Lock it so the ConfigMut can't be accessed
         assert!(test_struct.run(&mut storage).is_ok_and(|res| !res));
-        assert_eq!(test_struct.metadata().failed_param(), Some("patina::component::params::ConfigMut<'_, u32>"));
+        assert_eq!(
+            test_struct.metadata().error_message(),
+            Some(Cow::from("patina::component::params::ConfigMut<'_, u32>"))
+        );
 
         let mut test_struct = TestStructFail { x: 5 }.into_component();
         test_struct.initialize(&mut storage);
@@ -199,7 +213,6 @@ mod tests {
     }
 
     //Test structs that use generics and where clause
-    #[derive(crate::component::IntoComponent)]
     struct GenericStruct<T>
     where
         T: 'static,
@@ -207,6 +220,7 @@ mod tests {
         _x: T,
     }
 
+    #[component]
     impl<T> GenericStruct<T> {
         fn entry_point(self, _cfg: Config<u32>) -> crate::error::Result<()> {
             Ok(())
@@ -219,11 +233,11 @@ mod tests {
         let _ = test_struct.into_component();
     }
 
-    #[derive(crate::component::IntoComponent)]
     struct GenericStruct2<T: 'static> {
         _x: T,
     }
 
+    #[component]
     impl<T: 'static> GenericStruct2<T> {
         fn entry_point(self, _cfg: Config<u32>) -> crate::error::Result<()> {
             Ok(())
@@ -239,11 +253,11 @@ mod tests {
     #[test]
     /// A test that will stop compiling if we lose the ability to take self by value (self).
     fn test_component_entry_point_that_take_by_value_works() {
-        #[derive(crate::component::IntoComponent)]
         struct ByValue {
             _x: u32,
         }
 
+        #[component]
         impl ByValue {
             fn entry_point(self, _cfg: Config<u32>) -> crate::error::Result<()> {
                 Ok(())
@@ -256,11 +270,11 @@ mod tests {
     #[test]
     /// A test that will stop compiling if we lose the ability to take self by ref (&self).
     fn test_component_entry_point_that_take_by_ref_works() {
-        #[derive(crate::component::IntoComponent)]
         struct ByRef {
             _x: u32,
         }
 
+        #[component]
         impl ByRef {
             fn entry_point(&self, _cfg: Config<u32>) -> crate::error::Result<()> {
                 Ok(())
@@ -273,11 +287,11 @@ mod tests {
     #[test]
     /// A test that will stop compiling if we lose the ability to take self by ref (&mut self).
     fn test_component_entry_point_that_take_by_mut_works() {
-        #[derive(crate::component::IntoComponent)]
         struct ByMut {
             _x: u32,
         }
 
+        #[component]
         impl ByMut {
             fn entry_point(&mut self, _cfg: Config<u32>) -> crate::error::Result<()> {
                 Ok(())

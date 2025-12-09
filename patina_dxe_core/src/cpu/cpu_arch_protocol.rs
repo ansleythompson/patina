@@ -13,7 +13,7 @@ use alloc::boxed::Box;
 use core::ffi::c_void;
 use patina::{
     boot_services::{BootServices, StandardBootServices},
-    component::{IntoComponent, service::Service},
+    component::{component, service::Service},
     error::{EfiError, Result},
     uefi_protocol::ProtocolInterface,
 };
@@ -26,7 +26,7 @@ use r_efi::efi;
 use patina::pi::protocols::cpu_arch::{CpuFlushType, CpuInitType, InterruptHandler, PROTOCOL_GUID, Protocol};
 
 #[repr(C)]
-pub struct EfiCpuArchProtocolImpl {
+struct EfiCpuArchProtocolImpl {
     protocol: Protocol,
 
     // Crate accessible fields
@@ -188,9 +188,10 @@ impl EfiCpuArchProtocolImpl {
 }
 
 /// This component installs the cpu arch protocol
-#[derive(IntoComponent, Default)]
+#[derive(Default)]
 pub(crate) struct CpuArchProtocolInstaller;
 
+#[component]
 impl CpuArchProtocolInstaller {
     fn entry_point(
         self,

@@ -86,19 +86,31 @@ impl EfiCpuAarch64 {
     }
 
     fn data_cache_line_len(&self) -> u64 {
+        cfg_if::cfg_if! {
+            if #[cfg(all(not(test), target_arch = "aarch64"))]  {
+                let ctr_el0 = unsafe {
+                    let ctr_el0: u64;
+                    asm!("mrs {}, ctr_el0", out(reg) ctr_el0);
+                    ctr_el0
+                };
+                return 4 << ((ctr_el0 >> 16) & 0xf);
+            } else {
+                // For test mode or non-aarch64 platforms, return 64 bytes
+                64_u64
+            }
+        }
+    }
+
+    /// Causes the CPU to enter a low power state until the next interrupt.
+    // This routine only does bare-metal hardware access, so no coverage.
+    #[coverage(off)]
+    pub fn sleep() {
         #[cfg(all(not(test), target_arch = "aarch64"))]
         {
-            let ctr_el0 = unsafe {
-                let ctr_el0: u64;
-                asm!("mrs {}, ctr_el0", out(reg) ctr_el0);
-                ctr_el0
-            };
-            return 4 << ((ctr_el0 >> 16) & 0xf);
-        }
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            // For all other cases, return 64 bytes
-            64_u64
+            // SAFETY: The caller is expected to ensure that they want to wait for an interrupt
+            unsafe {
+                asm!("wfi", options(nostack));
+            }
         }
     }
 }
